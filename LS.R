@@ -1,107 +1,63 @@
-library(ggplot2)
-library(ggridges)
-library(dplyr)
+confirmed_global <- read.csv("time_series_covid19_confirmed_global.csv")
 
-
-main <- function(n) {
-
-  confirmed_global <- read.csv("time_series_covid19_confirmed_global.csv")
-  
-  Square <- function(a, b, c, x) a*x^2+b*x+c
-
-  Exp <- function(a, b, c, x) c*exp(a*x+b)
-  
-  My <- function(a, b, c, x) exp(c-exp(-a*x+b))
-  
-  
-
-    
-  LQ <- function(a, b, c){
-    
-
-    h=0.05
-    #eps = 10    
-    
-    ha <- h*0.2
-    hb <- h*10
-    hc <- h*10
-    repeat  {
-      prev <- f(confirmed, a, b, c)
-      eps <- 10
-      print(prev)
-      repeat {
-        aprev <- f(confirmed, a, b, c)
-        repeat {
-          a <- a+ha
-          if (f(confirmed, a, b, c)>=f(confirmed, a-ha, b, c)) break
-        }
-        ha <- -ha/3
-        acurr <- f(confirmed, a, b, c)
-        if (abs(aprev-acurr)<eps) break
-      }
-      ha <- 10*ha
-      
-      repeat {
-        bprev <- f(confirmed, a, b, c)
-        repeat {
-          b <- b+hb
-          if (f(confirmed, a, b, c)>=f(confirmed, a, b-hb, c)) break
-        }
-        hb <- -hb/3
-        bcurr <- f(confirmed, a, b, c)
-        if (abs(bprev-bcurr)<eps) break
-      }
-      hb <- 10*hb
-      
-      repeat {
-        cprev <- f(confirmed, a, b, c)
-        repeat {
-          c <- c+hc
-          if (f(confirmed, a, b, c)>=f(confirmed, a, b, c-hc)) break
-        }
-        hc <- -hc/3
-        ccurr <- f(confirmed, a, b, c)
-        if (abs(cprev-ccurr)<eps) break
-      }
-      hc <- 10*hc
-      
-      curr <- f(confirmed, a, b, c)
-      if (abs(prev-curr)<eps) break
-    }
-  
-    return(c(a, b, c))
-  }
- 
-  confirmed <- as.numeric(confirmed_global[n, -c (1:4)])
-  confirmed <- confirmed[confirmed > 0]
-  confirmed <- data.frame(conf = confirmed, time = 1:length(confirmed))
-  
-  graph <- cbind(confirmed, data.frame(type = rep("real", nrow(confirmed))))
-  
-  
-  f <- function(Data, ...) sqrt(sum((Square(..., Data["time"])-Data["conf"])^2))
-  parametrs <- LQ(0, 10, 500)
-  graph <- rbind(graph, data.frame(conf = Square(parametrs[1], parametrs[2], parametrs[3], 1:nrow(confirmed)), time = 1:nrow(confirmed), type = rep("quadric", nrow(confirmed))))
-  
-  f <- function(Data, ...) sqrt(sum((My(..., Data["time"])-Data["conf"])^2))
-  parametrs <- LQ(0, 0, 0)
-  graph <- rbind(graph, data.frame(conf = My(parametrs[1], parametrs[2], parametrs[3], 1:nrow(confirmed)), time = 1:nrow(confirmed), type = rep("my", nrow(confirmed))))
-  
-  f <- function(Data, ...) sqrt(sum((Exp(..., Data["time"])-Data["conf"])^2))
-  parametrs <- LQ(1, 1, 1)
-  graph <- rbind(graph, data.frame(conf = Exp(parametrs[1], parametrs[2], parametrs[3], 1:nrow(confirmed)), time = 1:nrow(confirmed), type = rep("exp", nrow(confirmed))))
-  
-  
-  ggplot(data = graph, aes(x = time, y = conf, group = type, color = type)) + 
-    geom_line() +
-    scale_color_manual(values = c("orange", "red", "green", "blue"),                    
-      labels = c("c*exp(a*x+b)", "exp(c-exp(-ax+b))", "ax^2+bx+c", "confirmed"),
-      name = "Graph") +
-    labs(title = "COVID-19 confirmed cases time series", 
-      x = "Time, day", 
-      y = paste("number of cases in", paste(confirmed_global[n, 1], confirmed_global[n, 2]))) + 
-    theme_bw()
+f<-function(x) {
+  if (abs(x)<0.5) return(0)
+  if (x>0.5) return(1)
+  if (x<-0.5) return(-1)
+  return(0)
 }
 
-main(188)#ввести номер строки с интересующей страной из файла "time_series_covid19_confirmed_global.csv"
+main <- function(list, delta = 5, step = 10) {
+  
+  for (country in list) {
+    i = 0
+    res <- data.frame()
+    while (i*step+5+2*delta <= ncol(confirmed_global)) {
+      res <- rbind(res, data.frame(value = c(confirmed_global[country, i*step+5]+confirmed_global[country, i*step+5+2*delta]-2*confirmed_global[country, i*step+5+delta]), time = c(i), country = country))
+      i <- i+1
+    }
+    res$value <- res$value / max(abs(res$value))
+    model <- rbind(model, res)
+  }
+  
+  return(model)
+}
 
+model <- data.frame()
+
+list <- c(51, 54, 188, 220, 226)#список интересующих стран
+
+model <- main(list, 7, 7)
+
+
+for (i in 1:nrow(model)) {
+  model$value[i] <- f(model$value[i])
+}
+
+statistic <- data.frame()
+
+for (country in list) {
+  
+  res<-data.frame(name = paste(confirmed_global[country, 1], confirmed_global[country, 2]),
+                  p = nrow(model[unlist(model$country)==country & unlist(model$value)==1,]), 
+                  z = nrow(model[unlist(model$country)==country & unlist(model$value)==0,]),
+                  n = nrow(model[unlist(model$country)==country & unlist(model$value)==-1,]),
+                  ptoz = 0, pton = 0, ztop = 0, zton = 0, ntop = 0, ntoz = 0)
+  
+  temp <- model[unlist(model$country)==country,]$value
+
+  for (i in 1:(length(temp)-1)) {
+    if (temp[i] == 1 & temp[i+1] == 0) res$ptoz <- res$ptoz+1
+    if (temp[i] == 1 & temp[i+1] == -1) res$pton <- res$pton+1
+    if (temp[i] == 0 & temp[i+1] == 1) res$ztop <- res$ztop+1
+    if (temp[i] == 0 & temp[i+1] == -1) res$zton <- res$zton+1
+    if (temp[i] == -1 & temp[i+1] == 1) res$ntop <- res$ntop+1
+    if (temp[i] == -1 & temp[i+1] == 0) res$ntoz <- res$ntoz+1
+  }
+  print(res)
+  statistic <- rbind(statistic, res)
+}
+
+statistic
+
+write.csv(statistic,"statistic.csv", row.names = TRUE)
